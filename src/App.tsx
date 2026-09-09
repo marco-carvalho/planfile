@@ -144,6 +144,7 @@ function formatRange(event: PlanEvent): string {
 
 const DAY_FORMATTER = new Intl.DateTimeFormat('en-US', {
   weekday: 'short',
+  month: 'short',
   day: 'numeric',
   timeZone: 'UTC',
 })
@@ -243,6 +244,25 @@ function buildDayRange(events: PlanEvent[], issues: Issue[]): string[] {
   return days
 }
 
+function readYamlDocument(source: string): { document?: unknown; issue?: Issue } {
+  try {
+    return {
+      document: parseYaml(source, {
+        merge: false,
+        maxAliasCount: 100,
+      }),
+    }
+  } catch (error) {
+    const yamlError = error as { message?: string; linePos?: [{ line: number }] }
+    return {
+      issue: {
+        message: yamlError.message ?? 'Invalid YAML.',
+        line: yamlError.linePos?.[0]?.line,
+      },
+    }
+  }
+}
+
 function parsePlan(source: string): { plan: Plan | null; issues: Issue[] } {
   const issues: Issue[] = []
 
@@ -261,23 +281,9 @@ function parsePlan(source: string): { plan: Plan | null; issues: Issue[] } {
     return { plan: null, issues: [] }
   }
 
-  let document: unknown
-  try {
-    document = parseYaml(source, {
-      merge: false,
-      maxAliasCount: 100,
-    })
-  } catch (error) {
-    const yamlError = error as { message?: string; linePos?: [{ line: number }] }
-    return {
-      plan: null,
-      issues: [
-        {
-          message: yamlError.message ?? 'Invalid YAML.',
-          line: yamlError.linePos?.[0]?.line,
-        },
-      ],
-    }
+  const { document, issue } = readYamlDocument(source)
+  if (issue) {
+    return { plan: null, issues: [issue] }
   }
 
   const parsedDoc = documentSchema.safeParse(document)
@@ -685,7 +691,15 @@ function PlanCalendar({
   )
 }
 
-const STORAGE_KEY = 'planfile:source:v3'
+const STORAGE_KEY = 'planfile:source:v4'
+
+function planSummary(plan: Plan | null): string {
+  const eventCount = plan?.events.length ?? 0
+  const eventLabel = eventCount === 1 ? '1 event' : `${eventCount} events`
+  const dayCount = plan?.days.length ?? 0
+  if (dayCount === 0) return eventLabel
+  return `${eventLabel} · ${dayCount} ${dayCount === 1 ? 'day' : 'days'}`
+}
 
 function loadInitialSource(): string {
   try {
@@ -714,7 +728,6 @@ function App() {
 
   const [exportError, setExportError] = useState<string | null>(null)
 
-  const eventCount = plan?.events.length ?? 0
   const canExport = plan !== null && plan.days.length > 0
   const hasDraft = source !== SAMPLE_PLAN
 
@@ -742,12 +755,7 @@ function App() {
       <header className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 py-2.5">
         <div className="flex items-baseline gap-3">
           <h1 className="text-sm font-semibold tracking-tight">Planfile</h1>
-          <span className="text-xs text-slate-500">
-            {eventCount === 1 ? '1 event' : `${eventCount} events`}
-            {plan &&
-              plan.days.length > 0 &&
-              ` · ${plan.days.length} ${plan.days.length === 1 ? 'day' : 'days'}`}
-          </span>
+          <span className="text-xs text-slate-500">{planSummary(plan)}</span>
         </div>
 
         <div className="flex items-center gap-3">
